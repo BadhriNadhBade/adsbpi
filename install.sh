@@ -8,7 +8,7 @@
 #   ADSBPI_VERSION            install a specific release tag instead of the latest (e.g. v0.1.0)
 # Flags (use `sh -s -- <flag>` when piping):
 #   --uninstall               remove the service, binary, udev rule and driver blacklist (keeps config)
-#   --purge                   with --uninstall: also delete /etc/adsbpi.toml, saved state and the service user
+#   --purge                   with --uninstall: also delete /etc/adsbpi.toml, saved state and the service use
 #
 # Safe to re-run: that upgrades the binary and keeps your config.
 
@@ -47,6 +47,19 @@ if live && [ "$(id -u)" -ne 0 ]; then
 fi
 
 systemd_running() { live && have systemctl && [ -d /run/systemd/system ]; }
+
+# Inside a container (Proxmox LXC, Docker, ...) the kernel and its USB drivers belong to the host.
+# ADSBPI_CONTAINER=1/0 forces the answer (used by tests).
+IN_CT=0
+if [ -n "${ADSBPI_CONTAINER:-}" ]; then
+  IN_CT=$ADSBPI_CONTAINER
+elif live; then
+  if have systemd-detect-virt && systemd-detect-virt --container --quiet 2>/dev/null; then
+    IN_CT=1
+  elif tr '\0' '\n' < /proc/1/environ 2>/dev/null | grep -q '^container='; then
+    IN_CT=1
+  fi
+fi
 
 # ---------------------------------------------------------------- uninstall
 if [ "$ACTION" = uninstall ]; then
@@ -122,17 +135,22 @@ mkdir -p "$(dest /usr/local/bin)"
 cp "$TMP/adsbpi" "$(dest $BIN_PATH).new"
 mv -f "$(dest $BIN_PATH).new" "$(dest $BIN_PATH)"
 
-say "Freeing the dongle from the Linux TV-tuner driver"
-mkdir -p "$(dest /etc/modprobe.d)"
-cat > "$(dest $BLACKLIST)" <<'EOF'
+if [ "$IN_CT" = 1 ]; then
+  # A blacklist file in here would do nothing: the host kernel loads (or not) the TV-tuner driver.
+  say "Container detected: skipping the driver blacklist (it has to be set on the host, see below)"
+else
+  say "Freeing the dongle from the Linux TV-tuner driver"
+  mkdir -p "$(dest /etc/modprobe.d)"
+  cat > "$(dest $BLACKLIST)" <<'EOF'
 # Installed by adsbpi: stop the kernel DVB driver from claiming RTL-SDR dongles.
 blacklist dvb_usb_rtl28xxu
 blacklist rtl2832
 blacklist rtl2830
-blacklist rtl2832_sdr
+blacklist rtl2832_sd
 EOF
-if live; then
-  modprobe -r dvb_usb_rtl28xxu rtl2832_sdr rtl2832 rtl2830 2>/dev/null || true
+  if live; then
+    modprobe -r dvb_usb_rtl28xxu rtl2832_sdr rtl2832 rtl2830 2>/dev/null || true
+  fi
 fi
 
 say "Allowing the service to open the USB dongle (udev rule)"
@@ -239,6 +257,17 @@ if systemd_running; then
 else
   warn "systemd is not running here, so the service was not started. Run it by hand:"
   warn "  $BIN_PATH --config $CONF"
+fi
+
+if [ "$IN_CT" = 1 ]; then
+  echo
+  if [ -d /dev/bus/usb ] && [ -n "$(ls -A /dev/bus/usb 2>/dev/null)" ]; then
+    echo "  Container: /dev/bus/usb is present. Run 'adsbpi probe' to confirm the dongle opens."
+  else
+    warn "Container: /dev/bus/usb is missing, so the dongle is not passed through yet."
+    warn "  On the Proxmox host run:  sh pve-host-setup.sh <container-id>"
+    warn "  (https://raw.githubusercontent.com/$REPO/main/scripts/pve-host-setup.sh), then restart this container."
+  fi
 fi
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"

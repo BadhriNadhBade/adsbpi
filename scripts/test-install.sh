@@ -43,5 +43,31 @@ check "config kept without --purge" "[ -e $ROOT/etc/adsbpi.toml ]"
 run --uninstall --purge >/dev/null 2>&1
 check "config removed with --purge" "[ ! -e $ROOT/etc/adsbpi.toml ]"
 
+echo "== container mode (LXC / Docker)"
+ROOT3=$(mktemp -d)
+DESTDIR="$ROOT3" ADSBPI_CONTAINER=1 ADSBPI_LOCAL_BIN="$BIN" sh ./install.sh >"$ROOT3/out" 2>&1
+check "container: driver blacklist skipped (it belongs on the host)" "[ ! -e $ROOT3/etc/modprobe.d/adsbpi-blacklist-rtl.conf ] && grep -q 'Container detected' $ROOT3/out"
+check "container: service, config and udev rule still installed" "[ -e $ROOT3/etc/systemd/system/adsbpi.service ] && [ -e $ROOT3/etc/adsbpi.toml ] && [ -e $ROOT3/etc/udev/rules.d/60-adsbpi-rtlsdr.rules ]"
+rm -rf "$ROOT3"
+
+echo "== Proxmox host helper (staged)"
+PVE=$(mktemp -d); mkdir -p "$PVE/etc/pve/lxc"
+CT="$PVE/etc/pve/lxc/105.conf"
+printf 'arch: amd64\nhostname: adsb\nunprivileged: 1\n\n[before-upgrade]\narch: amd64\nhostname: adsb\n' > "$CT"
+pve() { ROOT="$PVE" sh ./scripts/pve-host-setup.sh "$@"; }
+pve 105 >/dev/null 2>&1
+check "pve: passthrough lines added" "grep -q '^lxc.cgroup2.devices.allow: c 189:\* rwm' $CT && grep -q '^lxc.mount.entry: /dev/bus/usb dev/bus/usb none bind,optional,create=dir' $CT"
+check "pve: block sits before the first snapshot section" "[ \$(grep -n 'adsbpi-usb-begin' $CT | cut -d: -f1) -lt \$(grep -n '^\[before-upgrade\]' $CT | cut -d: -f1) ]"
+check "pve: original settings untouched" "grep -q '^unprivileged: 1' $CT && grep -q '^hostname: adsb' $CT"
+check "pve: host blacklist and udev rule written" "grep -q 'blacklist dvb_usb_rtl28xxu' $PVE/etc/modprobe.d/adsbpi-blacklist-rtl.conf && grep -q 'idProduct}==\"2838\".*MODE=\"0666\"' $PVE/etc/udev/rules.d/60-adsbpi-rtlsdr-host.rules"
+pve 105 >/dev/null 2>&1
+check "pve: re-run is idempotent (one block)" "[ \$(grep -c 'adsbpi-usb-begin' $CT) = 1 ]"
+pve 105 --undo >/dev/null 2>&1
+check "pve: undo removes block, blacklist and udev rule" "! grep -q 'adsbpi' $CT && [ ! -e $PVE/etc/modprobe.d/adsbpi-blacklist-rtl.conf ] && [ ! -e $PVE/etc/udev/rules.d/60-adsbpi-rtlsdr-host.rules ] && grep -q '^\[before-upgrade\]' $CT"
+check "pve: unknown container rejected" "! pve 999 >/dev/null 2>&1"
+check "pve: non-numeric id rejected" "! pve abc >/dev/null 2>&1"
+check "pve: refuses to run inside a container/non-Proxmox box" "! sh ./scripts/pve-host-setup.sh 105 >/dev/null 2>&1"
+rm -rf "$PVE"
+
 [ $fail = 0 ] && echo "ALL PASSED" || echo "SOME FAILED"
 exit $fail

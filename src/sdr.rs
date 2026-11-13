@@ -64,6 +64,16 @@ fn read_file(path: &PathBuf, tx: &SyncSender<Vec<u8>>) -> std::io::Result<u64> {
     }
 }
 
+/// Extra advice when the USB bus is not visible at all, which is what a container without
+/// passthrough looks like (a missing dongle on a normal machine still has /dev/bus/usb).
+fn usb_hint() -> &'static str {
+    if cfg!(target_os = "linux") && !std::path::Path::new("/dev/bus/usb").exists() {
+        ". /dev/bus/usb does not exist here: in a container or VM, pass the USB device through from the host (README: Proxmox / LXC)"
+    } else {
+        ""
+    }
+}
+
 /// Keep trying to (re)open the dongle forever: unplugging it must not kill the web map.
 fn device_loop(cfg: &Config, app: &Arc<App>, tx: &SyncSender<Vec<u8>>) {
     let mut announced = String::new();
@@ -72,7 +82,7 @@ fn device_loop(cfg: &Config, app: &Arc<App>, tx: &SyncSender<Vec<u8>>) {
             Ok(()) => return, // receiver side closed
             Err(e) => {
                 if e != announced {
-                    log::warn!("RTL-SDR: {e} (retrying every 5 s)");
+                    log::warn!("RTL-SDR: {e} (retrying every 5 s){}", usb_hint());
                     announced = e.clone();
                 }
                 app.set_sdr_status(format!("waiting for RTL-SDR: {e}"));

@@ -30,6 +30,44 @@ Then open `http://<your-pi>.local:8080`. The installer:
 Re-running it upgrades in place. To remove everything: `... | sudo sh -s -- --uninstall`
 (add `--purge` to also delete the config and saved state).
 
+## Install in a Proxmox LXC container (or any x86_64 Linux server)
+
+The same installer works on any 64-bit Intel/AMD or ARM Linux box with systemd (Debian, Ubuntu, ...).
+A plain server or VM with the dongle plugged in needs nothing extra: use the command above.
+
+An LXC container shares the host's kernel, so two things must be done **on the Proxmox node**, once:
+stop the host's TV-tuner driver from grabbing the dongle, and pass the USB bus into the container.
+One command does both (replace `105` with your container ID):
+
+```sh
+# on the Proxmox node, as root
+curl -fsSL https://raw.githubusercontent.com/BadhriNadhBade/adsbpi/main/scripts/pve-host-setup.sh | sh -s -- 105
+pct reboot 105
+```
+
+Then, inside the container (Debian/Ubuntu template, `curl` installed):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/BadhriNadhBade/adsbpi/main/install.sh | sh
+adsbpi probe          # should list the dongle
+```
+
+The installer notices it is in a container, skips the host-only driver blacklist, and tells you if
+`/dev/bus/usb` has not been passed through yet. The map is then at `http://<container-ip>:8080`.
+
+What `pve-host-setup.sh` changes (undo with `... | sh -s -- 105 --undo`):
+
+| Where | Change |
+|---|---|
+| `/etc/modprobe.d/adsbpi-blacklist-rtl.conf` | blacklists `dvb_usb_rtl28xxu`, `rtl2832`, `rtl2830`, `rtl2832_sdr` on the host |
+| `/etc/udev/rules.d/60-adsbpi-rtlsdr-host.rules` | makes only `0bda:2838` / `0bda:2832` dongles `MODE=0666` (an unprivileged container sees host users as "nobody", so group permissions cannot work) |
+| `/etc/pve/lxc/105.conf` | a marked block: `lxc.cgroup2.devices.allow: c 189:* rwm` and a bind mount of `/dev/bus/usb` |
+
+Works for unprivileged (the Proxmox default) and privileged containers. If the service fails with
+`status=226/NAMESPACE`, enable *Options, Features, Nesting* on the container. Replugging the dongle
+is safe: the whole `/dev/bus/usb` directory is mounted, so the new device node appears by itself.
+Other containers on the same node can see the dongle too; only one program can use it at a time.
+
 ## Using it
 
 | What | Where |
@@ -75,6 +113,8 @@ point to resolve. `adsbpi` uses your home position only as a sanity check (posit
 * `adsbpi probe` lists dongles and tries to open one.
 * "No RTL-SDR found": check `lsusb` shows `0bda:2838`; replug the dongle after installing.
 * "could not open it": permissions or another program (e.g. dump1090, rtl_test) is using it.
+* In a container, "/sys/bus/usb/devices not found" or "/dev/bus/usb does not exist": the USB bus is
+  not passed through. Run `pve-host-setup.sh` on the Proxmox node (see above) and restart the container.
 * Few aircraft: antenna placement dominates everything. Try gain 25 to 40 and a window or outdoor spot.
 * Pi 5 note: use a good USB power supply; a dongle on a weak supply causes dropped samples
   (the log warns about dropped USB chunks).
@@ -90,7 +130,14 @@ cargo build --release --target aarch64-unknown-linux-musl   # the Pi binary, sta
 bash scripts/e2e.sh target/release/adsbpi   # replays a real recording through web, Beast and SBS
 sh scripts/test-install.sh target/release/adsbpi   # installer in staging mode (touches nothing)
 bash scripts/bench.sh target/release/adsbpi  # decode speed vs real time
+sudo bash scripts/test-lxc.sh target/x86_64-unknown-linux-musl/release/adsbpi   # real Debian LXC containers
 ```
+
+`scripts/test-lxc.sh` needs root, the `lxc` package and internet. It creates a privileged and an
+unprivileged Debian 12 container, installs adsbpi in each with the real installer and checks the
+service, web map, Beast/SBS ports, upgrade and uninstall, then deletes the containers (`KEEP=1` keeps
+them). It adds `root:100000:65536` to `/etc/subuid` and `/etc/subgid` if missing. It cannot test the
+dongle itself, since a USB radio cannot be simulated.
 
 `adsbpi --file recording.bin` decodes a 2 MS/s unsigned 8-bit I/Q file (`rtl_sdr -f 1090000000 -s 2000000`)
 and prints an aircraft table; add `--serve` to keep the map up afterwards.
