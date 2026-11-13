@@ -30,6 +30,19 @@ Then open `http://<your-pi>.local:8080`. The installer:
 Re-running it upgrades in place. To remove everything: `... | sudo sh -s -- --uninstall`
 (add `--purge` to also delete the config and saved state).
 
+## Install on Proxmox (LXC container)
+
+Run this on the **Proxmox host** shell, not inside a container:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/BadhriNadhBade/adsbpi/main/proxmox.sh | ADSBPI_LAT=32.9618 ADSBPI_LON=-96.8292 sh
+```
+
+It blacklists the TV-tuner driver on the host (a container shares the host kernel), adds a host udev
+rule for the dongle, creates a small unprivileged Debian container, passes `/dev/bus/usb` through,
+and runs `install.sh` inside. To use an existing container instead, add `ADSBPI_CTID=<id>` (it is
+restarted). Other options: `ADSBPI_HOSTNAME`, `ADSBPI_STORAGE`, `ADSBPI_BRIDGE`.
+
 ## Using it
 
 | What | Where |
