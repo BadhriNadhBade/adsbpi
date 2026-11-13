@@ -1,0 +1,24 @@
+[package]
+name = "adsbpi"
+version = "0.1.0"
+edition = "2024"
+description = "Single-binary ADS-B receiver, decoder, live map and Beast/SBS server for RTL-SDR (Raspberry Pi)"
+license = "MIT"
+repository = "https://github.com/BadhriNadhBade/adsbpi"
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+env_logger = "0.11.11"
+log = "0.4.35"
+rs-rtl = "0.5.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tiny_http = "0.12.0"
+toml = "1.2.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

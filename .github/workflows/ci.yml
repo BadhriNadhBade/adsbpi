@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - name: Unit tests
+        run: cargo test --locked
+      - name: Release builds (x86_64 and aarch64, static)
+        run: |
+          cargo build --release --locked --target x86_64-unknown-linux-musl
+          cargo build --release --locked --target aarch64-unknown-linux-musl
+      - name: Static aarch64 binary check
+        run: |
+          file target/aarch64-unknown-linux-musl/release/adsbpi | tee /dev/stderr | grep -q "ARM aarch64.*statically linked"
+      - name: End-to-end (replay a real recording through every output)
+        run: bash scripts/e2e.sh target/x86_64-unknown-linux-musl/release/adsbpi
+      - name: Installer (staged, no system changes)
+        run: sh scripts/test-install.sh target/x86_64-unknown-linux-musl/release/adsbpi

@@ -1,0 +1,39 @@
+name: release
+
+# Publish binaries for the one-line installer:   git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+      - name: Test
+        run: cargo test --locked
+      - name: Build and package
+        run: |
+          mkdir dist
+          for pair in "x86_64:x86_64-unknown-linux-musl" "aarch64:aarch64-unknown-linux-musl"; do
+            arch=${pair%%:*}; target=${pair##*:}
+            cargo build --release --locked --target "$target"
+            asset="adsbpi-$arch-linux.tar.gz"
+            tar -czf "dist/$asset" -C "target/$target/release" adsbpi
+            (cd dist && sha256sum "$asset" > "$asset.sha256")
+          done
+          ls -l dist
+      - name: End-to-end check of the x86_64 build
+        run: |
+          tar -xzf dist/adsbpi-x86_64-linux.tar.gz -C /tmp
+          bash scripts/e2e.sh /tmp/adsbpi
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes

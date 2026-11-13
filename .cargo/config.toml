@@ -1,0 +1,5 @@
+# Pure-Rust dependencies only, so the bundled LLD can link static musl binaries from any host.
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"

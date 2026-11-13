@@ -1,0 +1,11 @@
+Third-party material
+
+* testdata/modes1.bin is the 2 MS/s I/Q test recording from antirez/dump1090
+  (https://github.com/antirez/dump1090), BSD 3-Clause, Copyright (c) 2012
+  Salvatore Sanfilippo. The demodulation approach (preamble match + per-bit
+  energy comparison at 2 MS/s) follows that project's design.
+* assets/leaflet/* is Leaflet 1.9.4 (https://leafletjs.com), BSD 2-Clause,
+  Copyright (c) 2010-2023 Vladimir Agafonkin, Copyright (c) 2010-2011 CloudMade.
+* Map tiles are loaded by the browser from OpenStreetMap
+  (c) OpenStreetMap contributors, ODbL. Please respect the tile usage policy.
+* RTL-SDR access uses the rs-rtl crate (MIT) and nusb (MIT/Apache-2.0).

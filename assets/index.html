@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>adsbpi</title>
+<link rel="stylesheet" href="/leaflet/leaflet.css">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1b2430; --muted: #66707d; --line: #dde1e6;
+    --accent: #1469d6; --row-hover: #eef3fb; --row-sel: #dce9fb; --ok: #1a8d4a; --warn: #b26a00; --bad: #c0392b;
+    --tile-filter: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12161c; --panel: #1a2029; --ink: #e6eaf0; --muted: #8f99a6; --line: #2b3440;
+      --accent: #5aa2ff; --row-hover: #222b37; --row-sel: #27384f; --ok: #4cc38a; --warn: #e0a040; --bad: #ff7a6b;
+      --tile-filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12161c; --panel: #1a2029; --ink: #e6eaf0; --muted: #8f99a6; --line: #2b3440;
+    --accent: #5aa2ff; --row-hover: #222b37; --row-sel: #27384f; --ok: #4cc38a; --warn: #e0a040; --bad: #ff7a6b;
+    --tile-filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         display: grid; grid-template-rows: auto 1fr; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 12px;
+           background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: .02em; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .chips b { color: var(--ink); font-weight: 600; }
+  .spacer { flex: 1; }
+  button, label.btn { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+           border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  main { display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
+  #map { min-height: 0; background: var(--bg); }
+  .leaflet-tile-pane { filter: var(--tile-filter); }
+  aside { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; min-height: 0; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th { position: sticky; top: 0; background: var(--panel); text-align: right; font-weight: 600; color: var(--muted);
+       padding: 6px 8px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  tr.row { cursor: pointer; }
+  tr.row:hover { background: var(--row-hover); }
+  tr.sel { background: var(--row-sel) !important; }
+  tr.stale td { color: var(--muted); }
+  .empty { padding: 24px 16px; color: var(--muted); }
+  .banner { position: absolute; z-index: 1000; left: 50%; top: 12px; transform: translateX(-50%); max-width: 90%;
+            background: var(--panel); border: 1px solid var(--warn); color: var(--ink); padding: 8px 14px;
+            border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,.25); display: none; text-align: center; }
+  .banner.show { display: block; }
+  .plane { transition: transform .9s linear; }
+  .plane svg { display: block; filter: drop-shadow(0 0 1px rgba(0,0,0,.8)); }
+  .tag { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; font-size: 11px; white-space: nowrap; }
+  .setting-home #map { cursor: crosshair; }
+  @media (max-width: 800px) {
+    main { grid-template-columns: 1fr; grid-template-rows: 55% 45%; }
+    aside { border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>adsbpi</h1>
+  <div class="chips">
+    <span>Aircraft <b id="c-ac">0</b> (<b id="c-pos">0</b> on map)</span>
+    <span>Messages/s <b id="c-rate">0</b></span>
+    <span>Radio <b id="c-sdr">…</b></span>
+  </div>
+  <span class="spacer"></span>
+  <label class="btn"><input type="checkbox" id="only-pos"> only with position</label>
+  <button id="btn-trails" class="on" title="Show flight trails">Trails</button>
+  <button id="btn-home" title="Click, then click the map where your antenna is">Set home</button>
+</header>
+<main>
+  <div id="map"><div class="banner" id="banner"></div></div>
+  <aside>
+    <table>
+      <thead><tr>
+        <th data-k="flight">Flight</th><th data-k="alt">Alt ft</th><th data-k="gs">kt</th><th data-k="dist">km</th><th data-k="seen">Seen</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty">No aircraft yet. Aircraft appear within a few seconds once the antenna hears them.</div>
+  </aside>
+</main>
+<script src="/leaflet/leaflet.js"></script>
+<script>
+(function () {
+  "use strict";
+  L.Icon.Default.prototype.options.imagePath = "/leaflet/images/";
+  const $ = (id) => document.getElementById(id);
+  const map = L.map("map", { zoomControl: true, preferCanvas: false }).setView([39, -98], 5);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 18, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+
+  let home = null, homeMarker = null, rangeRing = null, settingHome = false, centered = false;
+  let sortKey = "alt", sortDir = -1, selected = null, showTrails = true;
+  const planes = new Map();   // hex -> { marker, trail, pts, el }
+  let lastMsgs = null, lastT = null, latest = [];
+
+  const PLANE_SVG = '<svg width="26" height="26" viewBox="0 0 24 24"><path d="M12 1.5c.8 0 1.4.9 1.4 2v6.3l8.1 4.7v2.2l-8.1-2.3v4.6l2.3 1.7v1.8L12 21.3 8.3 22.5v-1.8l2.3-1.7v-4.6l-8.1 2.3v-2.2l8.1-4.7V3.5c0-1.1.6-2 1.4-2z" fill="{c}" stroke="#000" stroke-width=".8"/></svg>';
+
+  function altColor(alt) {
+    if (alt == null) return "#8a8f98";
+    const t = Math.max(0, Math.min(1, alt / 40000));
+    const hue = 15 + t * 235;               // low = orange, high = blue
+    return "hsl(" + hue + ",85%,52%)";
+  }
+  function km(a, b) {
+    const r = Math.PI / 180, dl = (b[0] - a[0]) * r, dn = (b[1] - a[1]) * r;
+    const h = Math.sin(dl / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dn / 2) ** 2;
+    return 12742 * Math.asin(Math.sqrt(h));
+  }
+  function banner(msg) { const b = $("banner"); b.textContent = msg || ""; b.classList.toggle("show", !!msg); }
+
+  function setHomeMarker(h) {
+    home = h ? [h.lat, h.lon] : null;
+    if (homeMarker) { map.removeLayer(homeMarker); homeMarker = null; }
+    if (rangeRing) { map.removeLayer(rangeRing); rangeRing = null; }
+    if (!home) { banner("Home position not set. Press “Set home”, then click the map where your antenna is."); return; }
+    banner(settingHome ? "Click the map to place your antenna" : "");
+    homeMarker = L.circleMarker(home, { radius: 7, color: "#fff", weight: 2, fillColor: "#e53935", fillOpacity: 1 })
+      .bindTooltip("Receiver", { direction: "top" }).addTo(map);
+    rangeRing = L.circle(home, { radius: 100000, color: "#e53935", weight: 1, opacity: .5, fill: false, dashArray: "4 6" }).addTo(map);
+    if (!centered) { map.setView(home, 8); centered = true; }
+  }
+
+  $("btn-home").onclick = function () {
+    settingHome = !settingHome;
+    this.classList.toggle("on", settingHome);
+    document.body.classList.toggle("setting-home", settingHome);
+    banner(settingHome ? "Click the map to place your antenna" : (home ? "" : "Home position not set."));
+  };
+  map.on("click", function (e) {
+    if (!settingHome) return;
+    fetch("/api/home", { method: "POST", body: JSON.stringify({ lat: +e.latlng.lat.toFixed(5), lon: +e.latlng.lng.toFixed(5) }) })
+      .then((r) => r.json()).then((j) => {
+        settingHome = false; $("btn-home").classList.remove("on"); document.body.classList.remove("setting-home");
+        if (j.ok) { centered = false; setHomeMarker({ lat: e.latlng.lat, lon: e.latlng.lng });
+                    if (j.persisted === false) banner("Home set for now, but it could not be saved: " + j.warning); }
+        else banner("Could not set home: " + (j.error || "unknown error"));
+      }).catch((e2) => banner("Could not set home: " + e2));
+  });
+  $("btn-trails").onclick = function () {
+    showTrails = !showTrails; this.classList.toggle("on", showTrails);
+    planes.forEach((p) => { if (showTrails) p.trail.addTo(map); else map.removeLayer(p.trail); });
+  };
+  $("only-pos").onchange = render;
+  document.querySelectorAll("th").forEach((th) => th.onclick = () => {
+    const k = th.dataset.k; if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = (k === "flight") ? 1 : -1; } render();
+  });
+
+  function label(a) { return a.flight || a.hex.toUpperCase(); }
+
+  function refreshMap(list) {
+    const seen = new Set();
+    for (const a of list) {
+      if (a.lat == null || a.lon == null || a.seen_pos > 60) continue;
+      seen.add(a.hex);
+      const pos = [a.lat, a.lon];
+      let p = planes.get(a.hex);
+      const html = '<div class="plane" style="transform:rotate(' + (a.track || 0) + 'deg)">' + PLANE_SVG.replace("{c}", altColor(a.alt_baro)) + "</div>";
+      if (!p) {
+        const marker = L.marker(pos, { icon: L.divIcon({ html: html, className: "", iconSize: [26, 26], iconAnchor: [13, 13] }), riseOnHover: true }).addTo(map);
+        marker.bindTooltip(label(a), { permanent: true, direction: "right", offset: [10, 0], className: "tag" });
+        marker.on("click", () => select(a.hex, false));
+        const trail = L.polyline([pos], { color: altColor(a.alt_baro), weight: 2, opacity: .7 });
+        if (showTrails) trail.addTo(map);
+        p = { marker: marker, trail: trail, pts: [pos], last: null };
+        planes.set(a.hex, p);
+      } else {
+        p.marker.setLatLng(pos);
+        p.marker.setIcon(L.divIcon({ html: html, className: "", iconSize: [26, 26], iconAnchor: [13, 13] }));
+        p.marker.setTooltipContent(label(a));
+        const last = p.pts[p.pts.length - 1];
+        if (last[0] !== pos[0] || last[1] !== pos[1]) {
+          p.pts.push(pos); if (p.pts.length > 80) p.pts.shift();
+          p.trail.setLatLngs(p.pts); p.trail.setStyle({ color: altColor(a.alt_baro) });
+        }
+      }
+    }
+    planes.forEach((p, hex) => {
+      if (!seen.has(hex)) { map.removeLayer(p.marker); map.removeLayer(p.trail); planes.delete(hex); }
+    });
+  }
+
+  function select(hex, pan) {
+    selected = hex; render();
+    const p = planes.get(hex);
+    if (p && pan) map.panTo(p.marker.getLatLng());
+  }
+
+  function render() {
+    const onlyPos = $("only-pos").checked;
+    const rows = latest.filter((a) => !onlyPos || a.lat != null).map((a) => ({
+      a: a, flight: label(a), alt: a.alt_baro, gs: a.gs, seen: a.seen,
+      dist: (home && a.lat != null) ? km(home, [a.lat, a.lon]) : null
+    }));
+    const dir = sortDir;
+    rows.sort((x, y) => {
+      const vx = x[sortKey], vy = y[sortKey];
+      if (vx == null && vy == null) return 0;
+      if (vx == null) return 1; if (vy == null) return -1;
+      return (typeof vx === "string" ? vx.localeCompare(vy) : vx - vy) * dir;
+    });
+    const tb = $("rows"); tb.textContent = "";
+    for (const r of rows) {
+      const tr = document.createElement("tr");
+      tr.className = "row" + (r.a.hex === selected ? " sel" : "") + (r.a.seen > 15 ? " stale" : "");
+      const cells = [r.flight, r.alt == null ? "–" : r.alt.toLocaleString(), r.gs == null ? "–" : Math.round(r.gs),
+                     r.dist == null ? "–" : r.dist.toFixed(0), r.seen < 1 ? "now" : Math.round(r.seen) + "s"];
+      cells.forEach((c) => { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); });
+      tr.title = "ICAO " + r.a.hex.toUpperCase() + (r.a.squawk ? " · squawk " + r.a.squawk : "") + (r.a.baro_rate ? " · " + r.a.baro_rate + " fpm" : "");
+      tr.onclick = () => select(r.a.hex, true);
+      tb.appendChild(tr);
+    }
+    $("empty").style.display = rows.length ? "none" : "block";
+  }
+
+  async function pollAircraft() {
+    try {
+      const r = await fetch("/data/aircraft.json", { cache: "no-store" });
+      const j = await r.json();
+      latest = j.aircraft;
+      if (lastMsgs != null && j.now > lastT) $("c-rate").textContent = Math.max(0, Math.round((j.messages - lastMsgs) / (j.now - lastT)));
+      lastMsgs = j.messages; lastT = j.now;
+      $("c-ac").textContent = latest.length;
+      $("c-pos").textContent = latest.filter((a) => a.lat != null).length;
+      refreshMap(latest); render();
+    } catch (e) { $("c-sdr").textContent = "server unreachable"; }
+  }
+  async function pollStatus() {
+    try {
+      const j = await (await fetch("/api/status", { cache: "no-store" })).json();
+      $("c-sdr").textContent = j.sdr;
+      $("c-sdr").style.color = j.sdr.startsWith("receiving") || j.sdr.startsWith("file") ? "var(--ok)" : "var(--warn)";
+      const h = j.home ? { lat: j.home.lat, lon: j.home.lon } : null;
+      if ((h && (!home || home[0] !== h.lat || home[1] !== h.lon)) || (!h && home)) setHomeMarker(h);
+      else if (!h && !home && !settingHome) banner("Home position not set. Press “Set home”, then click the map where your antenna is.");
+    } catch (e) { $("c-sdr").textContent = "server unreachable"; }
+  }
+  pollStatus(); pollAircraft();
+  setInterval(pollAircraft, 1000);
+  setInterval(pollStatus, 5000);
+})();
+</script>
+</body>
+</html>
