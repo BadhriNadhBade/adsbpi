@@ -13,6 +13,10 @@
 #   ADSBPI_HOSTNAME           new container's hostname            (default adsbpi)
 #   ADSBPI_STORAGE            storage for the container disk      (default: first that allows rootdir)
 #   ADSBPI_BRIDGE             network bridge                      (default vmbr0)
+#   ADSBPI_IP / ADSBPI_GW     static address for the container, e.g. 192.168.1.50/24 and 192.168.1.1
+#                             (default: DHCP; use this if the container gets no IPv4 lease)
+#   ADSBPI_DNS                DNS server for the container        (default: the host's, or 1.1.1.1 if
+#                             the host uses Tailscale/localhost DNS, which a container can't reach)
 #   ADSBPI_VERSION            install a specific release tag
 #
 # Safe to re-run with ADSBPI_CTID set: that upgrades adsbpi in that container.
@@ -83,12 +87,24 @@ else
     pveam download "$TSTORE" "$TEMPLATE" >/dev/null
   fi
 
+  NET="name=eth0,bridge=${ADSBPI_BRIDGE:-vmbr0},ip=dhcp"
+  if [ -n "${ADSBPI_IP:-}" ]; then
+    [ -n "${ADSBPI_GW:-}" ] || die "ADSBPI_IP needs ADSBPI_GW too."
+    NET="name=eth0,bridge=${ADSBPI_BRIDGE:-vmbr0},ip=$ADSBPI_IP,gw=$ADSBPI_GW"
+  fi
+  DNS="${ADSBPI_DNS:-}"
+  if [ -z "$DNS" ]; then
+    case "$(awk '$1 == "nameserver" {print $2; exit}' /etc/resolv.conf 2>/dev/null)" in
+      ""|127.*|100.*|::1|fd7a:*) DNS=1.1.1.1 ;;
+    esac
+  fi
+
   say "Creating container $CTID (${ADSBPI_HOSTNAME:-adsbpi}) on $STORAGE"
   pct create "$CTID" "$TSTORE:vztmpl/$TEMPLATE" \
     --hostname "${ADSBPI_HOSTNAME:-adsbpi}" \
     --cores 1 --memory 256 --swap 0 \
     --rootfs "$STORAGE:2" \
-    --net0 "name=eth0,bridge=${ADSBPI_BRIDGE:-vmbr0},ip=dhcp" \
+    --net0 "$NET" ${DNS:+--nameserver "$DNS"} \
     --unprivileged 1 --features nesting=1 --onboot 1 >/dev/null
 fi
 
@@ -106,7 +122,7 @@ pct start "$CTID"
 say "Waiting for the container's network"
 i=0
 until pct exec "$CTID" -- getent hosts github.com >/dev/null 2>&1; do
-  i=$((i + 1)); [ "$i" -le 30 ] || die "container $CTID has no network after 60 s (check bridge/DHCP)."
+  i=$((i + 1)); [ "$i" -le 30 ] || die "container $CTID has no network after 60 s. Check 'pct exec $CTID -- ip -br addr'. No IPv4 means DHCP failed: destroy it and retry with ADSBPI_IP=<addr/24> ADSBPI_GW=<gateway>."
   sleep 2
 done
 
