@@ -17,6 +17,7 @@
 #                             (default: DHCP; use this if the container gets no IPv4 lease)
 #   ADSBPI_DNS                DNS server for the container        (default: the host's, or 1.1.1.1 if
 #                             the host uses Tailscale/localhost DNS, which a container can't reach)
+#   ADSBPI_PASSWORD           root password for a NEW container   (default: a random one, printed at the end)
 #   ADSBPI_VERSION            install a specific release tag
 #
 # Safe to re-run with ADSBPI_CTID set: that upgrades adsbpi in that container.
@@ -99,9 +100,14 @@ else
     esac
   fi
 
+  # Console/SSH login for the new container: user root, ADSBPI_PASSWORD or a random one.
+  CT_PASS="${ADSBPI_PASSWORD:-$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)}"
+  [ -n "$CT_PASS" ] || die "could not generate a password. Set ADSBPI_PASSWORD."
+
   say "Creating container $CTID (${ADSBPI_HOSTNAME:-adsbpi}) on $STORAGE"
   pct create "$CTID" "$TSTORE:vztmpl/$TEMPLATE" \
     --hostname "${ADSBPI_HOSTNAME:-adsbpi}" \
+    --password "$CT_PASS" \
     --cores 1 --memory 256 --swap 0 \
     --rootfs "$STORAGE:2" \
     --net0 "$NET" ${DNS:+--nameserver "$DNS"} \
@@ -141,5 +147,6 @@ echo "  Container:  $CTID"
 echo "  Live map:   http://${IP:-<container-ip>}:8080/"
 echo "  Check dongle:  pct exec $CTID -- adsbpi probe"
 echo "  Logs:          pct exec $CTID -- journalctl -u adsbpi -f"
+[ "$NEW" = 1 ] && echo "  Login:         root / $CT_PASS   (Proxmox console, or 'pct enter $CTID' on the host)"
 [ "$NEW" = 1 ] && echo "  Remove:        pct stop $CTID && pct destroy $CTID"
 exit 0

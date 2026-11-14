@@ -79,7 +79,11 @@ curl -fsSL https://raw.githubusercontent.com/BadhriNadhBade/adsbpi/main/proxmox.
 It blacklists the TV-tuner driver on the host (a container shares the host kernel), adds a host udev
 rule for the dongle, creates a small unprivileged Debian container, passes `/dev/bus/usb` through,
 and runs `install.sh` inside. To use an existing container instead, add `ADSBPI_CTID=<id>` (it is
-restarted). Other options: `ADSBPI_HOSTNAME`, `ADSBPI_STORAGE`, `ADSBPI_BRIDGE`.
+restarted). Other options: `ADSBPI_HOSTNAME`, `ADSBPI_STORAGE`, `ADSBPI_BRIDGE`, `ADSBPI_PASSWORD`.
+
+A new container gets a login: user `root`, with a random password printed at the end of the run
+(or the one you pass as `ADSBPI_PASSWORD`). Use it at the container's **Console** in the Proxmox web UI,
+or run `pct enter <id>` on the host, which needs no password.
 
 ## Using it
 
