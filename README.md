@@ -68,6 +68,19 @@ Works for unprivileged (the Proxmox default) and privileged containers. If the s
 is safe: the whole `/dev/bus/usb` directory is mounted, so the new device node appears by itself.
 Other containers on the same node can see the dongle too; only one program can use it at a time.
 
+## Install on Proxmox: one-command container creation
+
+Run this on the **Proxmox host** shell, not inside a container:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/BadhriNadhBade/adsbpi/main/proxmox.sh | ADSBPI_LAT=32.9618 ADSBPI_LON=-96.8292 sh
+```
+
+It blacklists the TV-tuner driver on the host (a container shares the host kernel), adds a host udev
+rule for the dongle, creates a small unprivileged Debian container, passes `/dev/bus/usb` through,
+and runs `install.sh` inside. To use an existing container instead, add `ADSBPI_CTID=<id>` (it is
+restarted). Other options: `ADSBPI_HOSTNAME`, `ADSBPI_STORAGE`, `ADSBPI_BRIDGE`.
+
 ## Using it
 
 | What | Where |
