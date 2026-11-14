@@ -72,8 +72,10 @@ else
 
   say "Finding a Debian template"
   pveam update >/dev/null 2>&1 || true
-  TEMPLATE="$(pveam available --section system 2>/dev/null | awk '$2 ~ /^debian-1[23]-standard/ {print $2}' | sort -V | tail -n 1)"
-  [ -n "$TEMPLATE" ] || die "no Debian template available from 'pveam available'."
+  HOST_ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
+  # 'pveam available' lists every architecture, so match the host's or /sbin/init won't exec.
+  TEMPLATE="$(pveam available --section system 2>/dev/null | awk -v a="_${HOST_ARCH}.tar" '$2 ~ /^debian-1[23]-standard/ && index($2, a) {print $2}' | sort -V | tail -n 1)"
+  [ -n "$TEMPLATE" ] || die "no Debian template for $HOST_ARCH available from 'pveam available'."
   TSTORE="$(pvesm status --content vztmpl 2>/dev/null | awk 'NR>1 {print $1; exit}')"
   [ -n "$TSTORE" ] || die "no storage allows container templates."
   if ! pveam list "$TSTORE" 2>/dev/null | grep -q "$TEMPLATE"; then
